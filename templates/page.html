@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>{{ title }}</title>
+	<link rel="stylesheet" href="./assets/css/styles.css" type="text/css" />
+</head>
+<body>
+{% for key, script in assets.scripts.body %}
+<script src="{{ script }}"></script>
+{% endfor %}
+<div class="container">
+	<header class="banner">
+		<h1>{{ title }}</h1>
+		<img src="./assets/images/logo.png" />
+	</header>
+	<!--/header.banner-->
+	<section class="main">
+		<p>{{ body }}</p>
+		<p><a href="test">Test-link</a></p>
+	</section>
+	<!--/section.main-->
+</div>
+<!--/div.container-->
+</body>
+</html>
