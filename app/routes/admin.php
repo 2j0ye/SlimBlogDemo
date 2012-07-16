@@ -3,21 +3,17 @@
 /*
  * Set up admin route
  */
-Slim::get('/admin', function () {
-	// Set up a couple random variables to pass to the view...
-	$title = "Hi I'm in the Administration ZONE";
-	$body = "Yes You are Dude!";
-	$db = getConnection();
+$app->get('/admin', function () use($app) {
+	$db = getDbConnection();
 
-	// Get the main javascripts
-	$scripts = getMainScripts(); 
-	$assets = array(
-		'scripts' => $scripts,
-	);
+	// Set up a couple random variables to pass to the view...
+	$dataset = getCommonDataSet();
+	$dataset['title'] = "Home Page";
+	$dataset['body'] = "<p>Something to display in the body</p>";
 
 	// Set data to be passed to the view template
-	Slim::view()->setData(array('title' => $title, 'body' => $body, 'assets' => $assets));
-	
+	$app->view()->setData($dataset);
+
 	// Tell Slim/Twig which template to render for this route
-    Slim::render('page.html');
+    $app->render('page.html');
 });

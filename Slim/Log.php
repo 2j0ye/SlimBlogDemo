@@ -2,9 +2,12 @@
 /**
  * Slim - a micro PHP 5 framework
  *
- * @author      Josh Lockhart
- * @link        http://www.slimframework.com
+ * @author      Josh Lockhart <info@slimframework.com>
  * @copyright   2011 Josh Lockhart
+ * @link        http://www.slimframework.com
+ * @license     http://www.slimframework.com/license
+ * @version     1.6.4
+ * @package     Slim
  *
  * MIT LICENSE
  *
@@ -29,10 +32,11 @@
  */
 
 /**
- * Log Adapter
+ * Log
  *
- * This is an adapter for your own custom Logger. This adapter assumes
- * your custom Logger provides the following public instance methods:
+ * This is the primary logger for a Slim application. You may provide
+ * a Log Writer in conjunction with this Log to write to various output
+ * destinations (e.g. a file). This class provides this interface:
  *
  * debug( mixed $object )
  * info( mixed $object )
@@ -40,92 +44,182 @@
  * error( mixed $object )
  * fatal( mixed $object )
  *
- * USE THIS ADAPTER CLASS TO LOG ACTIVITY IN YOUR SLIM APPLICATION.
- * DO NOT CALL YOUR OWN LOGGER DIRECTLY.
- *
- * This class assumes nothing else about your custom Logger, so you are free
- * to use Apache's Log4PHP logger or any other log class that, at the
- * very least, implements the five public instance methods shown above.
+ * This class assumes only that your Log Writer has a public `write()` method
+ * that accepts any object as its one and only argument. The Log Writer
+ * class may write or send its argument anywhere: a file, STDERR,
+ * a remote web API, etc. The possibilities are endless.
  *
  * @package Slim
- * @author  Josh Lockhart <info@joshlockhart.com>
- * @since   Version 1.0
+ * @author  Josh Lockhart
+ * @since   1.0.0
  */
 class Slim_Log {
+    const FATAL = 0;
+    const ERROR = 1;
+    const WARN = 2;
+    const INFO = 3;
+    const DEBUG = 4;
 
     /**
-     * @var mixed An object that implements expected Logger interface
+     * @var array
      */
-    private static $logger;
+    static protected $levels = array(
+        0 => 'FATAL',
+        1 => 'ERROR',
+        2 => 'WARN',
+        3 => 'INFO',
+        4 => 'DEBUG'
+    );
+
+    /**
+     * @var mixed
+     */
+    protected $writer;
+
+    /**
+     * @var bool
+     */
+    protected $enabled;
+
+    /**
+     * @var int
+     */
+    protected $level;
+
+    /**
+     * Constructor
+     * @param   mixed   $writer
+     * @return  void
+     */
+    public function __construct( $writer ) {
+        $this->writer = $writer;
+        $this->enabled = true;
+        $this->level = 4;
+    }
+
+    /**
+     * Is logging enabled?
+     * @return bool
+     */
+    public function getEnabled() {
+        return $this->enabled;
+    }
+
+    /**
+     * Enable or disable logging
+     * @param   bool    $enabled
+     * @return  void
+     */
+    public function setEnabled( $enabled ) {
+        if ( $enabled ) {
+            $this->enabled = true;
+        } else {
+            $this->enabled = false;
+        }
+    }
+
+    /**
+     * Set level
+     * @param   int $level
+     * @return  void
+     * @throws  InvalidArgumentException
+     */
+    public function setLevel( $level ) {
+        if ( !isset(self::$levels[$level]) ) {
+            throw new InvalidArgumentException('Invalid log level');
+        }
+        $this->level = $level;
+    }
+
+    /**
+     * Get level
+     * @return int
+     */
+    public function getLevel() {
+        return $this->level;
+    }
+
+    /**
+     * Set writer
+     * @param   mixed $writer
+     * @return  void
+     */
+    public function setWriter( $writer ) {
+        $this->writer = $writer;
+    }
+
+    /**
+     * Get writer
+     * @return mixed
+     */
+    public function getWriter() {
+        return $this->writer;
+    }
+
+    /**
+     * Is logging enabled?
+     * @return bool
+     */
+    public function isEnabled() {
+        return $this->enabled;
+    }
 
     /**
      * Log debug message
-     *
-     * @param   mixed   $object
-     * @return  mixed   What the Logger returns, or false if Logger not set
+     * @param   mixed           $object
+     * @return  mixed|false     What the Logger returns, or false if Logger not set or not enabled
      */
-    public static function debug( $object ) {
-        return isset(self::$logger) ? self::$logger->debug($object) : false;
+    public function debug( $object ) {
+        return $this->log($object, 4);
     }
 
     /**
      * Log info message
-     *
-     * @param   mixed   $object
-     * @return  mixed   What the Logger returns, or false if Logger not set
+     * @param   mixed           $object
+     * @return  mixed|false     What the Logger returns, or false if Logger not set or not enabled
      */
-    public static function info( $object ) {
-        return isset(self::$logger) ? self::$logger->info($object) : false;
+    public function info( $object ) {
+        return $this->log($object, 3);
     }
 
     /**
      * Log warn message
-     *
-     * @param   mixed   $object
-     * @return  mixed   What the Logger returns, or false if Logger not set
+     * @param   mixed           $object
+     * @return  mixed|false     What the Logger returns, or false if Logger not set or not enabled
      */
-    public static function warn( $object ) {
-        return isset(self::$logger) ? self::$logger->warn($object) : false;
+    public function warn( $object ) {
+        return $this->log($object, 2);
     }
 
     /**
      * Log error message
-     *
-     * @param   mixed   $object
-     * @return  mixed   What the Logger returns, or false if Logger not set
+     * @param   mixed           $object
+     * @return  mixed|false     What the Logger returns, or false if Logger not set or not enabled
      */
-    public static function error( $object ) {
-        return isset(self::$logger) ? self::$logger->error($object) : false;
+    public function error( $object ) {
+        return $this->log($object, 1);
     }
 
     /**
      * Log fatal message
-     *
-     * @param   mixed   $object
-     * @return  mixed   What the Logger returns, or false if Logger not set
+     * @param   mixed           $object
+     * @return  mixed|false     What the Logger returns, or false if Logger not set or not enabled
      */
-    public static function fatal( $object ) {
-        return isset(self::$logger) ? self::$logger->fatal($object) : false;
+    public function fatal( $object ) {
+        return $this->log($object, 0);
     }
 
     /**
-     * Set the Logger object
-     *
-     * @param   mixed   $logger Instance of your custom Logger
-     * @return  void
+     * Log message
+     * @param   mixed   The object to log
+     * @param   int     The message level
+     * @return  int|false
      */
-    public static function setLogger( $logger ) {
-        self::$logger = $logger;
+    protected function log( $object, $level ) {
+        if ( $this->enabled && $this->writer && $level <= $this->level ) {
+            return $this->writer->write($object, $level);
+        } else {
+            return false;
+        }
     }
-
-    /**
-     * Get the Logger object
-     *
-     * @return  mixed   Instance of your custom Logger
-     */
-    public static function getLogger() {
-        return self::$logger;
-    }
-
 }
-?>

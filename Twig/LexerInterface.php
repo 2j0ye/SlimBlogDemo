@@ -13,15 +13,15 @@
  * Interface implemented by lexer classes.
  *
  * @package    twig
- * @author     Fabien Potencier <fabien.potencier@symfony-project.com>
+ * @author     Fabien Potencier <fabien@symfony.com>
  */
 interface Twig_LexerInterface
 {
     /**
      * Tokenizes a source code.
      *
-     * @param  string $code     The source code
-     * @param  string $filename A unique identifier for the source code
+     * @param string $code     The source code
+     * @param string $filename A unique identifier for the source code
      *
      * @return Twig_TokenStream A token stream instance
      */

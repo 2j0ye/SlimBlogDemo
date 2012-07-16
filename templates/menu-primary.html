@@ -1,0 +1,8 @@
+<nav class="primary_menu">
+	<ul class="menu">
+		{% for key, item in primary_links %}
+		  <li><a class="{{ item.active }}" href="{{ item.url }}">{{ item.title }}</a></li>
+		{% endfor %}
+	</ul>
+</nav>
+<!--/nav.primary_menu-->

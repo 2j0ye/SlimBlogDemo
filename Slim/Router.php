@@ -2,9 +2,12 @@
 /**
  * Slim - a micro PHP 5 framework
  *
- * @author      Josh Lockhart
- * @link        http://www.slimframework.com
+ * @author      Josh Lockhart <info@slimframework.com>
  * @copyright   2011 Josh Lockhart
+ * @link        http://www.slimframework.com
+ * @license     http://www.slimframework.com/license
+ * @version     1.6.4
+ * @package     Slim
  *
  * MIT LICENSE
  *
@@ -31,73 +34,63 @@
 /**
  * Router
  *
- * Responsible for registering route paths with associated callables.
- * When a Slim application is run, the Router finds a matching Route for
- * the current HTTP request, and if a matching route is found, executes
- * the Route's associated callable passing it parameters from the Request URI.
+ * This class organizes Route objects and, upon request, will
+ * return an iterator for routes that match the HTTP request URI.
  *
  * @package Slim
- * @author  Josh Lockhart <info@joshlockhart.com>
- * @since   Version 1.0
+ * @author  Josh Lockhart
+ * @since   1.0.0
  */
 class Slim_Router implements Iterator {
-
     /**
      * @var Slim_Http_Request
      */
-    private $request;
+    protected $request;
 
     /**
-     * @var array Lookup hash of routes, keyed by Request method
+     * @var Slim_Http_Response
      */
-    private $routes;
+    protected $response;
+
+    /**
+     * @var array Lookup hash of all routes
+     */
+    protected $routes;
 
     /**
      * @var array Lookup hash of named routes, keyed by route name
      */
-    private $namedRoutes;
+    protected $namedRoutes;
 
     /**
-     * @var array Array of routes that match the Request method and URL
+     * @var array Array of routes that match the Request URI (lazy-loaded)
      */
-    private $matchedRoutes;
+    protected $matchedRoutes;
 
     /**
      * @var mixed Callable to be invoked if no matching routes are found
      */
-    private $notFound;
+    protected $notFound;
 
     /**
      * @var mixed Callable to be invoked if application error
      */
-    private $error;
-
-    /**
-     * @var int Iterator position
-     */
-    private $position;
+    protected $error;
 
     /**
      * Constructor
-     *
-     * @param Request $request The HTTP request object
+     * @param   Slim_Http_Request   $request    The HTTP request object
+     * @param   Slim_Http_Response  $response   The HTTP response object
      */
-    public function __construct( Slim_Http_Request $request ) {
+    public function __construct( Slim_Http_Request $request, Slim_Http_Response $response ) {
         $this->request = $request;
-        $this->routes = array(
-            'GET' => array(),
-            'POST' => array(),
-            'PUT' => array(),
-            'DELETE' => array()
-        );
-        $this->position = 0;
+        $this->response = $response;
+        $this->routes = array();
+        $this->namedRoutes = array();
     }
-
-    /***** ACCESSORS *****/
 
     /**
      * Get Request
-     *
      * @return Slim_Http_Request
      */
     public function getRequest() {
@@ -105,28 +98,31 @@ class Slim_Router implements Iterator {
     }
 
     /**
-     * Set Request
-     *
-     * @param   Slim_Http_Request
-     * @return  void
+     * Get Response
+     * @return Slim_Http_Response
      */
-    public function setRequest( Slim_Http_Request $req ) {
-        $this->request = $req;
+    public function getResponse() {
+        return $this->response;
     }
 
-    /***** MAPPING *****/
+    /**
+     * Get Current Route
+     * @return Slim_Route|false
+     */
+    public function getCurrentRoute() {
+        $this->getMatchedRoutes(); // <-- Parse if not already parsed
+        return $this->current();
+    }
 
     /**
      * Return routes that match the current request
-     *
-     * @return array[Route]
+     * @return array[Slim_Route]
      */
     public function getMatchedRoutes( $reload = false ) {
         if ( $reload || is_null($this->matchedRoutes) ) {
             $this->matchedRoutes = array();
-            $method = $this->getRequest()->isHead() ? Slim_Http_Request::METHOD_GET : $this->getRequest()->getMethod();
-            foreach( $this->routes[$method] as $route ) {
-                if ( $route->matches($this->getRequest()->getResourceUri()) ) {
+            foreach ( $this->routes as $route ) {
+                if ( $route->matches($this->request->getResourceUri()) ) {
                     $this->matchedRoutes[] = $route;
                 }
             }
@@ -136,48 +132,29 @@ class Slim_Router implements Iterator {
 
     /**
      * Map a route to a callback function
-     *
-     * @param   string  $pattern    The URL pattern (ie. "/books/:id")
-     * @param   mixed   $callable   Anything that returns TRUE for is_callable()
-     * @param   string  $method     The HTTP request method (GET, POST, PUT, DELETE)
-     * @return  Route
+     * @param   string      $pattern    The URL pattern (ie. "/books/:id")
+     * @param   mixed       $callable   Anything that returns TRUE for is_callable()
+     * @return  Slim_Route
      */
-    public function map( $pattern, $callable, $method ) {
+    public function map( $pattern, $callable ) {
         $route = new Slim_Route($pattern, $callable);
         $route->setRouter($this);
-        $methodKey = ( $method === Slim_Http_Request::METHOD_HEAD ) ? Slim_Http_Request::METHOD_GET : $method;
-        $this->routes[$methodKey][] = $route;
+        $this->routes[] = $route;
         return $route;
     }
 
     /**
-     * Cache named route
-     *
-     * @param   string              $name   The route name
-     * @param   Slim_Route          $route  The route object
-     * @throws  RuntimeException            If a named route already exists with the same name
-     * @return  void
-     */
-    public function cacheNamedRoute( $name, Slim_Route $route ) {
-        if ( isset($this->namedRoutes[(string)$name]) ) {
-            throw new RuntimeException('Named route already exists with name: ' . $name);
-        }
-        $this->namedRoutes[$name] = $route;
-    }
-
-    /**
      * Get URL for named route
-     *
      * @param   string              $name   The name of the route
      * @param   array                       Associative array of URL parameter names and values
      * @throws  RuntimeException            If named route not found
      * @return  string                      The URL for the given route populated with the given parameters
      */
     public function urlFor( $name, $params = array() ) {
-        if ( !isset($this->namedRoutes[(string)$name]) ) {
+        if ( !$this->hasNamedRoute($name) ) {
             throw new RuntimeException('Named route not found for name: ' . $name);
         }
-        $pattern = $this->namedRoutes[(string)$name]->getPattern();
+        $pattern = $this->getNamedRoute($name)->getPattern();
         $search = $replace = array();
         foreach ( $params as $key => $value ) {
             $search[] = ':' . $key;
@@ -188,12 +165,55 @@ class Slim_Router implements Iterator {
         return preg_replace(array(
             '@\(\/?:.+\/??\)\??@',
             '@\?|\(|\)@'
-        ), '', $this->getRequest()->getRootUri() . $pattern);
+        ), '', $this->request->getRootUri() . $pattern);
+    }
+
+    /**
+     * Add named route
+     * @param   string              $name   The route name
+     * @param   Slim_Route          $route  The route object
+     * @throws  RuntimeException            If a named route already exists with the same name
+     * @return  void
+     */
+    public function addNamedRoute( $name, Slim_Route $route ) {
+        if ( $this->hasNamedRoute($name) ) {
+            throw new RuntimeException('Named route already exists with name: ' . $name);
+        }
+        $this->namedRoutes[(string)$name] = $route;
+    }
+
+    /**
+     * Has named route
+     * @param   string  $name   The route name
+     * @return  bool
+     */
+    public function hasNamedRoute( $name ) {
+        return isset($this->namedRoutes[(string)$name]);
+    }
+
+    /**
+     * Get named route
+     * @param   string  $name
+     * @return  Slim_Route|null
+     */
+    public function getNamedRoute( $name ) {
+        if ( $this->hasNamedRoute($name) ) {
+            return $this->namedRoutes[(string)$name];
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Get named routes
+     * @return ArrayIterator
+     */
+    public function getNamedRoutes() {
+        return new ArrayIterator($this->namedRoutes);
     }
 
     /**
      * Register a 404 Not Found callback
-     *
      * @param   mixed $callable Anything that returns TRUE for is_callable()
      * @return  mixed
      */
@@ -206,7 +226,6 @@ class Slim_Router implements Iterator {
 
     /**
      * Register a 500 Error callback
-     *
      * @param   mixed $callable Anything that returns TRUE for is_callable()
      * @return  mixed
      */
@@ -217,54 +236,43 @@ class Slim_Router implements Iterator {
         return $this->error;
     }
 
-    /***** ITERATOR INTERFACE *****/
-
     /**
-     * Return the current route being dispatched
-     *
-     * @return Route
-     */
-    public function current() {
-        return $this->matchedRoutes[$this->position];
-    }
-
-    /**
-     * Reset the current route to the first matching route
-     *
+     * Iterator Interface: Rewind
      * @return void
      */
     public function rewind() {
-        $this->position = 0;
+        reset($this->matchedRoutes);
     }
 
     /**
-     * Return the 0-indexed position of the current route
-     * being dispatched among all matching routes
-     *
-     * @return int
+     * Iterator Interface: Current
+     * @return Slim_Route|false
+     */
+    public function current() {
+        return current($this->matchedRoutes);
+    }
+
+    /**
+     * Iterator Interface: Key
+     * @return int|null
      */
     public function key() {
-        return $this->position;
+        return key($this->matchedRoutes);
     }
 
     /**
-     * Return the 0-indexed position of the next route to
-     * be dispatched among all matching routes
-     *
-     * @return int
+     * Iterator Interface: Next
+     * @return void
      */
     public function next() {
-        $this->position = $this->position + 1;
+        next($this->matchedRoutes);
     }
 
     /**
-     * Does a matching route exist at a given 0-indexed position?
-     *
-     * @return bool
+     * Iterator Interface: Valid
+     * @return boolean
      */
     public function valid() {
-        return isset($this->matchedRoutes[$this->position]);
+        return $this->current();
     }
-
 }
-?>
