@@ -9,17 +9,47 @@ require '../Views/TwigView.php';
 /*
  * Initialize Slim to use the TwigView handler
  */
-Slim::init(array('view' => 'TwigView', 'templates_dir' => '../templates'));
+$settings = array(
+    'view' => 'TwigView', 
+    'templates.path' => '../templates',
+);
+$app = new Slim($settings);
+
+/**
+ * Get Common Data Set
+ */
+function getCommonDataSet() {
+    // Get the primary links
+    $primary_links = menuGetPrimaryItems();
+
+    // Get the global site informations
+    $global = getGlobalInfos();
+
+    // Get the main javascripts
+    $scripts = getMainScripts();
+
+    return array(
+        'primary_links' => $primary_links, 
+        'global' => $global, 
+        'assets' => array(
+            'scripts' => $scripts,
+        ),
+    );
+}
 
 /**
  * Establish a DBConnexion with PDO
  */
-function getConnection() {
-    $dbhost = '127.0.0.1';
-    $dbuser = 'root';
-    $dbpass = '';
-    $dbname = 'slim';
-    $dbh = new PDO("mysql:host=$dbhost;dbname=$dbname", $dbuser, $dbpass);
+function getDbConnection() {
+    $params = parse_ini_file('../app/config.ini', true);
+
+    $dbhost = $params['database']['dbhost'];
+    $dbuser = $params['database']['dbuser'];
+    $dbpass = $params['database']['dbpass'];
+    $dbname = $params['database']['dbname'];
+    $dbcharset = $params['database']['dbcharset'];
+
+    $dbh = new PDO("mysql:host=$dbhost;dbname=$dbname;charset=$dbcharset", $dbuser, $dbpass);
     $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     return $dbh;
@@ -29,13 +59,27 @@ function getConnection() {
  * Get the main called javascripts
  */
 function getMainScripts() {
+    return array(
+        'body' => array(
+            'http://code.jquery.com/jquery-1.7.2.min.js',
+            './assets/js/main.js',
+        ),
+    );
+}
+
+/**
+ * Get the global site informations
+ */
+function getGlobalInfos() {
 	return array(
-		'body' => array(
-			'http://code.jquery.com/jquery-1.7.2.min.js',
-			'./assets/js/main.js',
-		),
+		'sitename' => 'Slim Blog Demo',
 	);
 }
+
+/**
+ *  Include menu handler
+ */
+require '../app/inc/menu.php';
 
 /**
  * Include the routes definitions
@@ -46,4 +90,4 @@ require '../app/routes/admin.php';
 /*
  * Run the Application
  */
-Slim::run();
+$app->run();

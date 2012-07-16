@@ -13,7 +13,7 @@
  * Loads template from the filesystem.
  *
  * @package    twig
- * @author     Fabien Potencier <fabien.potencier@symfony-project.com>
+ * @author     Fabien Potencier <fabien@symfony.com>
  */
 class Twig_Loader_Filesystem implements Twig_LoaderInterface
 {
@@ -47,27 +47,37 @@ class Twig_Loader_Filesystem implements Twig_LoaderInterface
      */
     public function setPaths($paths)
     {
-        // invalidate the cache
-        $this->cache = array();
-
         if (!is_array($paths)) {
             $paths = array($paths);
         }
 
         $this->paths = array();
         foreach ($paths as $path) {
-            if (!is_dir($path)) {
-                throw new Twig_Error_Loader(sprintf('The "%s" directory does not exist.', $path));
-            }
-
-            $this->paths[] = $path;
+            $this->addPath($path);
         }
+    }
+
+    /**
+     * Adds a path where templates are stored.
+     *
+     * @param string $path A path where to look for templates
+     */
+    public function addPath($path)
+    {
+        // invalidate the cache
+        $this->cache = array();
+
+        if (!is_dir($path)) {
+            throw new Twig_Error_Loader(sprintf('The "%s" directory does not exist.', $path));
+        }
+
+        $this->paths[] = rtrim($path, '/\\');
     }
 
     /**
      * Gets the source code of a template, given its name.
      *
-     * @param  string $name The name of the template to load
+     * @param string $name The name of the template to load
      *
      * @return string The template source code
      */
@@ -79,7 +89,7 @@ class Twig_Loader_Filesystem implements Twig_LoaderInterface
     /**
      * Gets the cache key to use for the cache for a given template name.
      *
-     * @param  string $name The name of the template to load
+     * @param string $name The name of the template to load
      *
      * @return string The cache key
      */
@@ -96,7 +106,7 @@ class Twig_Loader_Filesystem implements Twig_LoaderInterface
      */
     public function isFresh($name, $time)
     {
-        return filemtime($this->findTemplate($name)) < $time;
+        return filemtime($this->findTemplate($name)) <= $time;
     }
 
     protected function findTemplate($name)
@@ -121,6 +131,10 @@ class Twig_Loader_Filesystem implements Twig_LoaderInterface
 
     protected function validateName($name)
     {
+        if (false !== strpos($name, "\0")) {
+            throw new Twig_Error_Loader('A template name cannot contain NUL bytes.');
+        }
+
         $parts = explode('/', $name);
         $level = 0;
         foreach ($parts as $part) {

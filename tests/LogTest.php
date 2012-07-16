@@ -2,9 +2,11 @@
 /**
  * Slim - a micro PHP 5 framework
  *
- * @author      Josh Lockhart
- * @link        http://www.slimframework.com
+ * @author      Josh Lockhart <info@slimframework.com>
  * @copyright   2011 Josh Lockhart
+ * @link        http://www.slimframework.com
+ * @license     http://www.slimframework.com/license
+ * @version     1.6.4
  *
  * MIT LICENSE
  *
@@ -30,84 +32,107 @@
 
 set_include_path(dirname(__FILE__) . '/../' . PATH_SEPARATOR . get_include_path());
 
-require_once 'Slim/Log.php';
+require 'Slim/Log.php';
 
-class MyLogger {
-
-    public function debug( $object ) {
-        return 'debug';
+class MyWriter {
+    public function write( $object, $level ) {
+        echo (string)$object;
+        return true;
     }
-
-    public function info( $object ) {
-        return 'info';
-    }
-
-    public function warn( $object ) {
-        return 'warn';
-    }
-
-    public function error( $object ) {
-        return 'error';
-    }
-
-    public function fatal( $object ) {
-        return 'fatal';
-    }
-
 }
 
-class LogTest extends PHPUnit_Extensions_OutputTestCase {
-
-    /**
-     * Test Log adapter Logger
-     *
-     * Pre-conditions:
-     * Logger instantiated;
-     *
-     * Post-conditions:
-     * Logger set as Log logger
-     */
-    public function testSetsLogger() {
-        $logger = new MyLogger();
-        Slim_Log::setLogger($logger);
-        $this->assertSame($logger, Slim_Log::getLogger());
+class LogTest extends PHPUnit_Framework_TestCase {
+    public function testEnabled() {
+        $log = new Slim_Log(new MyWriter());
+        $this->assertTrue($log->isEnabled()); //<-- Default case
+        $log->setEnabled(true);
+        $this->assertTrue($log->isEnabled());
+        $log->setEnabled(false);
+        $this->assertFalse($log->isEnabled());
     }
 
-    /**
-     * Test Log adapter methods
-     *
-     * Pre-conditions
-     * Logger instantiated and set;
-     *
-     * Post-conditions:
-     * Expected responses are returned proving Logger was called;
-     */
-    public function testLoggerMethods() {
-        Slim_Log::setLogger(new MyLogger());
-        $this->assertEquals('debug', Slim_Log::debug('Test'));
-        $this->assertEquals('info', Slim_Log::info('Test'));
-        $this->assertEquals('warn', Slim_Log::warn('Test'));
-        $this->assertEquals('error', Slim_Log::error('Test'));
-        $this->assertEquals('fatal', Slim_Log::fatal('Test'));
+    public function testGetLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $this->assertEquals(4, $log->getLevel());
     }
 
-    /**
-     * Test Log adapter methods if no logger set
-     *
-     * Pre-conditions
-     * Logger not set
-     *
-     * Post-conditions:
-     * All calls to adapter return false
-     */
-    public function testLoggerMethodsIfNoLogger() {
-        Slim_Log::setLogger(null);
-        $this->assertFalse(Slim_Log::debug('Test'));
-        $this->assertFalse(Slim_Log::info('Test'));
-        $this->assertFalse(Slim_Log::warn('Test'));
-        $this->assertFalse(Slim_Log::error('Test'));
-        $this->assertFalse(Slim_Log::fatal('Test'));
+    public function testSetLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(2);
+        $this->assertEquals(2, $log->getLevel());
     }
 
+    public function testSetInvalidLevel() {
+        $this->setExpectedException('InvalidArgumentException');
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(5);
+    }
+
+    public function testLogDebug() {
+        $this->expectOutputString('Debug');
+        $log = new Slim_Log(new MyWriter());
+        $result = $log->debug('Debug');
+        $this->assertTrue($result);
+    }
+
+    public function testLogDebugExcludedByLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(3);
+        $this->assertFalse($log->debug('Debug'));
+    }
+
+    public function testLogInfo() {
+        $this->expectOutputString('Info');
+        $log = new Slim_Log(new MyWriter());
+        $result = $log->info('Info');
+        $this->assertTrue($result);
+    }
+
+    public function testLogInfoExcludedByLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(2);
+        $this->assertFalse($log->info('Info'));
+    }
+
+    public function testLogWarn() {
+        $this->expectOutputString('Warn');
+        $log = new Slim_Log(new MyWriter());
+        $result = $log->warn('Warn');
+        $this->assertTrue($result);
+    }
+
+    public function testLogWarnExcludedByLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(1);
+        $this->assertFalse($log->warn('Warn'));
+    }
+
+    public function testLogError() {
+        $this->expectOutputString('Error');
+        $log = new Slim_Log(new MyWriter());
+        $result = $log->error('Error');
+        $this->assertTrue($result);
+    }
+
+    public function testLogErrorExcludedByLevel() {
+        $log = new Slim_Log(new MyWriter());
+        $log->setLevel(0);
+        $this->assertFalse($log->error('Error'));
+    }
+
+    public function testLogFatal() {
+        $this->expectOutputString('Fatal');
+        $log = new Slim_Log(new MyWriter());
+        $result = $log->fatal('Fatal');
+        $this->assertTrue($result);
+    }
+
+    public function testGetAndSetWriter() {
+        $writer1 = new MyWriter();
+        $writer2 = new MyWriter();
+        $log = new Slim_Log($writer1);
+        $this->assertSame($writer1, $log->getWriter());
+        $log->setWriter($writer2);
+        $this->assertSame($writer2, $log->getWriter());
+    }
 }
-?>
