@@ -1,12 +1,12 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
 /**
  * Slim - a micro PHP 5 framework
  *
- * @author      Josh Lockhart
- * @link        http://www.slimframework.com
+ * @author      Josh Lockhart <info@joshlockhart.com>
  * @copyright   2011 Josh Lockhart
+ * @link        http://www.slimframework.com
+ * @license     http://www.slimframework.com/license
+ * @version     1.6.4
  *
  * MIT LICENSE
  *
@@ -34,1237 +34,1305 @@ set_include_path(dirname(__FILE__) . '/../' . PATH_SEPARATOR . get_include_path(
 
 require_once 'Slim/Slim.php';
 
-//Prepare mock HTTP request
-$_SERVER['REDIRECT_STATUS'] = "200";
-$_SERVER['HTTP_HOST'] = "slim";
-$_SERVER['HTTP_CONNECTION'] = "keep-alive";
-$_SERVER['HTTP_CACHE_CONTROL'] = "max-age=0";
-$_SERVER['HTTP_ACCEPT'] = "application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5";
-$_SERVER['HTTP_USER_AGENT'] = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_4; en-US) AppleWebKit/534.3 (KHTML, like Gecko) Chrome/6.0.472.63 Safari/534.3";
-$_SERVER['HTTP_ACCEPT_ENCODING'] = "gzip,deflate,sdch";
-$_SERVER['HTTP_ACCEPT_LANGUAGE'] = "en-US,en;q=0.8";
-$_SERVER['HTTP_ACCEPT_CHARSET'] = "ISO-8859-1,utf-8;q=0.7,*;q=0.3";
-$_SERVER['HTTP_IF_MODIFIED_SINCE'] = "Sun, 03 Oct 2010 17:00:52 -0400";
-$_SERVER['HTTP_IF_NONE_MATCH'] = '"abc123"';
-$_SERVER['HTTP_COOKIE'] = 'foo=bar; foo2=bar2';
-$_SERVER['PATH'] = "/usr/bin:/bin:/usr/sbin:/sbin";
-$_SERVER['SERVER_SIGNATURE'] = "";
-$_SERVER['SERVER_SOFTWARE'] = "Apache";
-$_SERVER['SERVER_NAME'] = "slim";
-$_SERVER['SERVER_ADDR'] = "127.0.0.1";
-$_SERVER['SERVER_PORT'] = "80";
-$_SERVER['REMOTE_ADDR'] = "127.0.0.1";
-$_SERVER['DOCUMENT_ROOT'] = '/home/account/public';
-$_SERVER['SERVER_ADMIN'] = "you@example.com";
-$_SERVER['SCRIPT_FILENAME'] = __FILE__;
-$_SERVER['REMOTE_PORT'] = "55426";
-$_SERVER['REDIRECT_URL'] = "/";
-$_SERVER['GATEWAY_INTERFACE'] = "CGI/1.1";
-$_SERVER['SERVER_PROTOCOL'] = "HTTP/1.1";
-$_SERVER['REQUEST_METHOD'] = "GET";
-$_SERVER['QUERY_STRING'] = "";
-$_SERVER['REQUEST_URI'] = "/";
-$_SERVER['SCRIPT_NAME'] = '/bootstrap.php';
-$_SERVER['PHP_SELF'] = '/bootstrap.php';
-$_SERVER['REQUEST_TIME'] = "1285647051";
-$_SERVER['argv'] = array();
-$_SERVER['argc'] = 0;
+//Register non-Slim autoloader
+function customAutoLoader( $class ) {
+    $file = rtrim(dirname(__FILE__), '/') . '/' . $class . '.php';
+    if ( file_exists($file) ) {
+        require $file;
+    } else {
+        return;
+    }
+}
+spl_autoload_register('customAutoLoader');
 
 //Mock custom view
 class CustomView extends Slim_View {
     function render($template) { echo "Custom view"; }
 }
 
-//Mock custom Logger
-class CustomLogger{
-    public function debug( $var ) {
-        print_r($var);
-    }
-    public function info( $var ) {
-        print_r($var);
-    }
-    public function warn( $var ) {
-        print_r($var);
-    }
-    public function error( $var ) {
-        print_r($var);
-    }
-    public function fatal( $var ) {
-        print_r($var);
+//Mock middleware
+class CustomMiddleware extends Slim_Middleware {
+    public function call() {
+        $env = $this->app->environment();
+        $res = $this->app->response();
+        $env['slim.test'] = 'Hello';
+        $this->next->call();
+        $res->header('X-Slim-Test', 'Hello');
+        $res->write('Hello');
     }
 }
 
-class SlimTest extends PHPUnit_Extensions_OutputTestCase {
+class SlimTest extends PHPUnit_Framework_TestCase {
 
     public function setUp() {
-        $_SERVER['REQUEST_METHOD'] = "GET";
-        $_ENV['SLIM_MODE'] = null;
-        $_COOKIE['foo'] = 'bar';
-        $_COOKIE['foo2'] = 'bar2';
-        $_SERVER['REQUEST_URI'] = "/";
+        //Remove environment mode if set
+        unset($_ENV['SLIM_MODE']);
+
+        //Reset session
+        $_SESSION = array();
+
+        //Prepare default environment variables
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'QUERY_STRING' => 'one=foo&two=bar',
+            'SERVER_NAME' => 'slimframework.com',
+        ));
     }
 
     /************************************************
-     * SLIM INITIALIZATION
+     * INSTANTIATION
      ************************************************/
 
     /**
-     * Test Slim initialization
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application without specifying
-     * a custom View class.
-     *
-     * Post-conditions:
-     * Slim should have a default Not Found handler that is callable;
-     * Slim should have a default Error hanlder that is callable;
-     * Slim should have a default View
+     * Test default instance properties
      */
-    public function testSlimInit() {
-        Slim::init();
-        $this->assertTrue(is_callable(Slim::router()->notFound()));
-        $this->assertTrue(is_callable(Slim::router()->error()));
-        $this->assertTrue(Slim::view() instanceof Slim_View);
-        $this->assertEquals('20 minutes', Slim::config('cookies.lifetime'));
+    public function testDefaultInstanceProperties() {
+        $s = new Slim();
+        $this->assertInstanceOf('Slim_Http_Request', $s->request());
+        $this->assertInstanceOf('Slim_Http_Response', $s->response());
+        $this->assertInstanceOf('Slim_Router', $s->router());
+        $this->assertInstanceOf('Slim_View', $s->view());
+        $this->assertInstanceOf('Slim_Log', $s->getLog());
+        $this->assertEquals(4, $s->getLog()->getLevel());
+        $this->assertTrue($s->getLog()->getEnabled());
+        $this->assertInstanceOf('Slim_Environment', $s->environment());
     }
 
     /**
-     * Test Slim initialization
-     *
-     * Pre-conditions:
-     * Case A: Slim application initialized with logging, without custom Logger
-     *
-     * Post-conditions:
-     * Case A: Default Logger is set
+     * Test get default instance
      */
-    public function testSlimInitWithDefaultLogger() {
-        Slim::init(array(
-            'log.path' => dirname(__FILE__) . '/logs',
-            'log.enable' => true
-        ));
-        $this->assertTrue(Slim_Log::getLogger() instanceof Slim_Logger);
+    public function testGetDefaultInstance() {
+        $s = new Slim();
+        $s->setName('default'); //We must do this manually since a default app is already set in prev tests
+        $this->assertEquals('default', $s->getName());
+        $this->assertInstanceOf('Slim', Slim::getInstance());
+        $this->assertSame($s, Slim::getInstance());
     }
 
     /**
-     * Test Slim initialization
-     *
-     * Pre-conditions:
-     * Case A: Slim application initialized with logging, with custom Logger
-     *
-     * Post-conditions:
-     * Case A: Custom Logger is set
+     * Test get named instance
      */
-    public function testSlimInitWithCustomLogger() {
-        Slim::init(array(
-            'log.enable' => true,
-            'log.logger' => new CustomLogger()
-        ));
-        $this->assertTrue(Slim_Log::getLogger() instanceof CustomLogger);
+    public function testGetNamedInstance() {
+        $s = new Slim();
+        $s->setName('foo');
+        $this->assertSame($s, Slim::getInstance('foo'));
     }
 
     /**
-     * Test Slim initialization with custom view
+     * Test Slim autoloader ignores non-Slim classes
      *
      * Pre-conditions:
-     * Case A: Slim app initialized with string
-     * Case B: Slim app initialized with View instance
-     * Case C: Slim app initialized with array
+     * Instantiate a non-Slim class;
      *
      * Post-conditions:
-     * Case A: View is instance of CustomView
-     * Case B: View is instance of CustomView
-     * Case C: View is instance of CustomView
+     * Slim autoloader returns without requiring a class file;
      */
-    public function testSlimInitWithCustomView(){
-        //Case A
-        Slim::init('CustomView');
-        $this->assertTrue(Slim::view() instanceof CustomView);
-        //Case B
-        Slim::init(new CustomView());
-        $this->assertTrue(Slim::view() instanceOf CustomView);
-        //Case C
-        Slim::init(array('view' => 'CustomView'));
-        $this->assertTrue(Slim::view() instanceOf CustomView);
+    public function testSlimAutoloaderIgnoresNonSlimClass() {
+        $foo = new Foo();
     }
-
-    /**
-     * Test get Slim instance
-     *
-     * Pre-conditions:
-     * Slim app initialized;
-     *
-     * Post-conditions:
-     * The Slim app instance is returned
-     */
-    public function testSlimGetInstance() {
-        Slim::init('CustomView');
-        $app = Slim::getInstance();
-        $this->assertTrue( $app instanceof Slim );
-    }
-
 
     /************************************************
-     * SLIM SETTINGS
+     * SETTINGS
      ************************************************/
 
     /**
-     * Test Slim mode with ENV[SLIM_MODE]
-     *
-     * Pre-conditions:
-     * SLIM_MODE environment variable set;
-     * Slim app initialized with config mode;
-     *
-     * Post-conditions:
-     * Only the production configuration is called;
+     * Test get setting that exists
      */
-    public function testSlimModeEnvironment() {
-        $this->expectOutputString('production mode');
+    public function testGetSettingThatExists() {
+        $s = new Slim();
+        $this->assertEquals('./templates', $s->config('templates.path'));
+    }
+
+    /**
+     * Test get setting that does not exist
+     */
+    public function testGetSettingThatDoesNotExist() {
+        $s = new Slim();
+        $this->assertNull($s->config('foo'));
+    }
+
+    /**
+     * Test set setting
+     */
+    public function testSetSetting() {
+        $s = new Slim();
+        $this->assertEquals('./templates', $s->config('templates.path'));
+        $s->config('templates.path', './tmpl');
+        $this->assertEquals('./tmpl', $s->config('templates.path'));
+    }
+
+    /**
+     * Test batch set settings
+     */
+    public function testBatchSetSettings() {
+        $s = new Slim();
+        $this->assertEquals('./templates', $s->config('templates.path'));
+        $this->assertTrue($s->config('debug'));
+        $s->config(array(
+            'templates.path' => './tmpl',
+            'debug' => false
+        ));
+        $this->assertEquals('./tmpl', $s->config('templates.path'));
+        $this->assertFalse($s->config('debug'));
+    }
+
+    /************************************************
+     * MODES
+     ************************************************/
+
+    /**
+     * Test default mode
+     */
+    public function testGetDefaultMode() {
+        $s = new Slim();
+        $this->assertEquals('development', $s->getMode());
+    }
+
+    /**
+     * Test custom mode from environment
+     */
+    public function testGetModeFromEnvironment() {
         $_ENV['SLIM_MODE'] = 'production';
-        Slim::init(array(
+        $s = new Slim();
+        $this->assertEquals('production', $s->getMode());
+    }
+
+    /**
+     * Test custom mode from app settings
+     */
+    public function testGetModeFromSettings() {
+        $s = new Slim(array(
             'mode' => 'test'
         ));
-        Slim::configureMode('test', function () {
-            echo "test mode";
-        });
-        Slim::configureMode('production', function () {
-            echo "production mode";
-        });
+        $this->assertEquals('test', $s->getMode());
+		}
+
+    /**
+     * Test mode configuration
+     */
+    public function testModeConfiguration() {
+        $flag = 0;
+        $configureTest = function () use (&$flag) {
+            $flag = 'test';
+        };
+        $configureProduction = function () use (&$flag) {
+            $flag = 'production';
+        };
+        $s = new Slim(array('mode' => 'test'));
+        $s->configureMode('test', $configureTest);
+        $s->configureMode('production', $configureProduction);
+        $this->assertEquals('test', $flag);
     }
 
     /**
-     * Test Slim mode with Config
-     *
-     * Pre-conditions:
-     * ENV[SLIM_MODE] not set;
-     * Slim app initialized with config mode;
-     *
-     * Post-conditions:
-     * Only the test configuration is called;
+     * Test mode configuration when mode does not match
      */
-    public function testSlimModeConfig() {
-        $this->expectOutputString('test mode');
-        Slim::init(array(
-            'mode' => 'test'
-        ));
-        Slim::configureMode('test', function () {
-            echo "test mode";
-        });
-        Slim::configureMode('production', function () {
-            echo "production mode";
-        });
+    public function testModeConfigurationWhenModeDoesNotMatch() {
+        $flag = 0;
+        $configureTest = function () use (&$flag) {
+            $flag = 'test';
+        };
+        $s = new Slim(array('mode' => 'production'));
+        $s->configureMode('test', $configureTest);
+        $this->assertEquals(0, $flag);
     }
 
     /**
-     * Test Slim mode with default
-     *
-     * Pre-conditions:
-     * ENV[SLIM_MODE] not set;
-     * Slim app initialized without config mode;
-     *
-     * Post-conditions:
-     * Only the development configuration is called;
+     * Test mode configuration when not callable
      */
-    public function testSlimModeDefault() {
-        $this->expectOutputString('dev mode');
-        Slim::init();
-        Slim::configureMode('development', function () {
-            echo "dev mode";
-        });
-        Slim::configureMode('production', function () {
-            echo "production mode";
-        });
+    public function testModeConfigurationWhenNotCallable() {
+        $flag = 0;
+        $s = new Slim(array('mode' => 'production'));
+        $s->configureMode('production', 'foo');
+        $this->assertEquals(0, $flag);
     }
 
     /**
-     * Test Slim defines one application setting
-     *
-     * Pre-conditions:
-     * You have intiailized a Slim application, and you
-     * set a single configuration setting.
-     *
-     * Post-conditions:
-     * The configuration setting is set correctly.
+     * Test custom mode from getenv()
      */
-    public function testSlimConfigSetsOneSetting(){
-        Slim::init();
-        Slim::config('foo', 'bar');
-        $this->assertEquals(Slim::config('foo'), 'bar');
-    }
-
-    /**
-     * Test Slim setting is NULL if non-existant
-     *
-     * Pre-conditions:
-     * You have intiailized a Slim application, and you
-     * fetch a non-existing config setting.
-     *
-     * Post-conditions:
-     * NULL is returned for the value of the setting
-     */
-    public function testSlimConfigIfSettingDoesNotExist(){
-        Slim::init();
-        $this->assertNull(Slim::config('foo'));
-    }
-
-    /**
-     * Test Slim defines multiple settings with array
-     *
-     * Pre-conditions:
-     * You have intiailized a Slim application, and you
-     * pass an associative array into Slim::config
-     *
-     * Post-conditions:
-     * Multiple settings are set correctly.
-     */
-    public function testSlimCongfigurationWithArray(){
-        Slim::init();
-        Slim::config(array(
-            'one' => 'A',
-            'two' => 'B',
-            'three' => 'C'
-        ));
-        $this->assertEquals(Slim::config('one'), 'A');
-        $this->assertEquals(Slim::config('two'), 'B');
-        $this->assertEquals(Slim::config('three'), 'C');
+    public function testGetModeFromGetEnv() {
+        putenv('SLIM_MODE=production');
+        $s = new Slim();
+        $this->assertEquals('production', $s->getMode());
     }
 
     /************************************************
-     * SLIM ROUTING
+     * ROUTING
      ************************************************/
 
     /**
-     * Test Slim GET route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a GET route.
-     *
-     * Post-conditions:
-     * The GET route is returned, and its pattern and
-     * callable are set correctly.
+     * Test GENERIC route
      */
-    public function testSlimGetRoute(){
-        Slim::init();
+    public function testGenericRoute() {
+        $s = new Slim();
         $callable = function () { echo "foo"; };
-        $route = Slim::get('/foo/bar', $callable);
-        $this->assertEquals('/foo/bar', $route->getPattern());
+        $route = $s->map('/bar', $callable);
+        $this->assertInstanceOf('Slim_Route', $route);
+        $this->assertEmpty($route->getHttpMethods());
+    }
+
+    /**
+     * Test GET route
+     */
+    public function testGetRoute() {
+        $s = new Slim();
+        $mw1 = function () { echo "foo"; };
+        $mw2 = function () { echo "bar"; };
+        $callable = function () { echo "xyz"; };
+        $route = $s->get('/bar', $mw1, $mw2, $callable);
+        $s->call();
+        $this->assertEquals('foobarxyz', $s->response()->body());
+        $this->assertEquals('/bar', $route->getPattern());
         $this->assertSame($callable, $route->getCallable());
     }
 
     /**
-     * Test Slim GET route with middleware
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a GET route and middleware
-     *
-     * Post-conditions:
-     * The GET route is returned, and its pattern and
-     * callable are set correctly.
+     * Test POST route
      */
-    public function testSlimGetRouteWithMiddleware(){ 
-        Slim::init();
+    public function testPostRoute() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'POST',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
         $mw1 = function () { echo "foo"; };
         $mw2 = function () { echo "bar"; };
-        $callable = function () { echo "foo"; };
-        $route = Slim::get('/', $mw1, $mw2, $callable);
-        $this->expectOutputString('foobarfoo');
-        Slim::run();
-    }
-
-    /**
-     * Test Slim sets POST route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a POST route.
-     *
-     * Post-conditions:
-     * The POST route is returned, and its pattern and
-     * callable are set correctly.
-     */
-    public function testSlimPostRoute(){
-        Slim::init();
-        $callable = function () { echo "foo"; };
-        $route = Slim::post('/foo/bar', $callable);
-        $this->assertEquals('/foo/bar', $route->getPattern());
+        $callable = function () { echo "xyz"; };
+        $route = $s->post('/bar', $mw1, $mw2, $callable);
+        $s->call();
+        $this->assertEquals('foobarxyz', $s->response()->body());
+        $this->assertEquals('/bar', $route->getPattern());
         $this->assertSame($callable, $route->getCallable());
     }
 
     /**
-     * Test Slim POST route with middleware
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a POST route and middleware
-     *
-     * Post-conditions:
-     * The POST route and its middleware are invoked
+     * Test PUT route
      */
-    public function testSlimPostRouteWithMiddleware(){ 
-        $_SERVER['REQUEST_METHOD'] = 'POST';
-        Slim::init();
+    public function testPutRoute() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'PUT',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
         $mw1 = function () { echo "foo"; };
         $mw2 = function () { echo "bar"; };
-        $callable = function () { echo "foo"; };
-        $route = Slim::post('/', $mw1, $mw2, $callable);
-        $this->expectOutputString('foobarfoo');
-        Slim::run();
-    }
-
-    /**
-     * Test Slim sets PUT route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a PUT route.
-     *
-     * Post-conditions:
-     * The PUT route is returned, and its pattern and
-     * callable are set correctly.
-     */
-    public function testSlimPutRoute(){
-        Slim::init();
-        $callable = function () { echo "foo"; };
-        $route = Slim::put('/foo/bar', $callable);
-        $this->assertEquals('/foo/bar', $route->getPattern());
+        $callable = function () { echo "xyz"; };
+        $route = $s->put('/bar', $mw1, $mw2, $callable);
+        $s->call();
+        $this->assertEquals('foobarxyz', $s->response()->body());
+        $this->assertEquals('/bar', $route->getPattern());
         $this->assertSame($callable, $route->getCallable());
     }
 
     /**
-     * Test Slim PUT route with middleware
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a PUT route and middleware
-     *
-     * Post-conditions:
-     * The PUT route and its middleware are invoked
+     * Test DELETE route
      */
-    public function testSlimPutRouteWithMiddleware(){ 
-        $_SERVER['REQUEST_METHOD'] = 'PUT';
-        Slim::init();
+    public function testDeleteRoute() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'DELETE',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
         $mw1 = function () { echo "foo"; };
         $mw2 = function () { echo "bar"; };
-        $callable = function () { echo "foo"; };
-        $route = Slim::put('/', $mw1, $mw2, $callable);
-        $this->expectOutputString('foobarfoo');
-        Slim::run();
-    }
-
-    /**
-     * Test Slim sets DELETE route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a DELETE route.
-     *
-     * Post-conditions:
-     * The DELETE route is returned and its pattern and
-     * callable are set correctly.
-     */
-    public function testSlimDeleteRoute(){
-        Slim::init();
-        $callable = function () { echo "foo"; };
-        $route = Slim::delete('/foo/bar', $callable);
-        $this->assertEquals('/foo/bar', $route->getPattern());
+        $callable = function () { echo "xyz"; };
+        $route = $s->delete('/bar', $mw1, $mw2, $callable);
+        $s->call();
+        $this->assertEquals('foobarxyz', $s->response()->body());
+        $this->assertEquals('/bar', $route->getPattern());
         $this->assertSame($callable, $route->getCallable());
     }
 
     /**
-     * Test Slim DELETE route with middleware
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a DELETE route and middleware
-     *
-     * Post-conditions:
-     * The DELETE route and its middleware are invoked
+     * Test OPTIONS route
      */
-    public function testSlimDeleteRouteWithMiddleware(){ 
-        $_SERVER['REQUEST_METHOD'] = 'DELETE';
-        Slim::init();
+    public function testOptionsRoute() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'OPTIONS',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
         $mw1 = function () { echo "foo"; };
         $mw2 = function () { echo "bar"; };
-        $callable = function () { echo "foo"; };
-        $route = Slim::delete('/', $mw1, $mw2, $callable);
-        $this->expectOutputString('foobarfoo');
-        Slim::run();
+        $callable = function () { echo "xyz"; };
+        $route = $s->options('/bar', $mw1, $mw2, $callable);
+        $s->call();
+        $this->assertEquals('foobarxyz', $s->response()->body());
+        $this->assertEquals('/bar', $route->getPattern());
+        $this->assertSame($callable, $route->getCallable());
     }
 
     /**
-     * Test Slim routing and trailing slashes
-     *
-     * Pre-conditions:
-     * A route is defined that expects a trailing slash, but
-     * the resource URI does not have a trailing slash - but
-     * otherwise matches the route pattern.
-     *
-     * Post-conditions:
-     * Slim will send a 301 redirect response to the same
-     * resource URI but with a trailing slash.
+     * Test if route expects trailing slash and URL does not have one
      */
     public function testRouteWithSlashAndUrlWithout() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        $_SERVER['REQUEST_URI'] = '/foo/bar/bob';
-        Slim::init();
-        Slim::get('/foo/bar/:name/', function ($name) {});
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 301);
-        $this->assertEquals(Slim::response()->header('Location'), '/foo/bar/bob/');
-    }
-
-    /**
-     * Test Slim routing and trailing slashes
-     *
-     * Pre-conditions:
-     * A route is defined that expects no trailing slash, but
-     * the resource URI does have a trailing slash - but
-     * otherwise matches the route pattern.
-     *
-     * Post-conditions:
-     * Slim will send a 404 Not Found response
-     */
-    public function testRouteWithoutSlashAndUrlWith() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        $_SERVER['REQUEST_URI'] = '/foo/bar/bob/';
-        Slim::init();
-        Slim::get('/foo/bar/:name', function ($name) {});
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 404);
-    }
-
-    /**
-     * Test Slim routing with URL encoded characters
-     *
-     * Pre-conditions:
-     * Slim initialized;
-     * Route defined and matches current request;
-     * URL encoded spaces in URL
-     *
-     * Post-conditions:
-     * Route matched;
-     * Route callable invoked;
-     * Route callable arguments are URL decoded;
-     */
-    public function testRouteWithUrlEncodedParameters() {
-        $_SERVER['REQUEST_URI'] = '/foo/jo%20hn/smi%20th';
-        Slim::init();
-        Slim::get('/foo/:one/:two', function ($one, $two) {
-            echo "$one and $two";
-        });
-        Slim::run();
-        $this->expectOutputString('jo hn and smi th');
-    }
-
-    /************************************************
-     * SLIM VIEW
-     ************************************************/
-
-    /**
-     * Test Slim copies data from old View to new View
-     *
-     * Pre-conditions:
-     * You have intialized a Slim app with a View;
-     * You set data for the initial View;
-     * You tell Slim to use a new View
-     *
-     * Post-conditions:
-     * The data from the original view should be accessible
-     * in the new View
-     */
-    public function testSlimCopiesViewData(){
-        $data = array('foo' => 'bar');
-        Slim::init();
-        Slim::view()->setData($data);
-        Slim::view('CustomView');
-        $this->assertEquals($data, Slim::view()->getData());
-    }
-
-    /************************************************
-     * SLIM RENDERING
-     ************************************************/
-
-    /**
-     * Test Slim::render
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app and render an existing
-     * template. No Exceptions or Errors are thrown.
-     *
-     * Post-conditions:
-     * The response status is 404;
-     * The View data is set correctly;
-     * The response status code is set correctly
-     */
-    public function testSlimRenderSetsResponseStatusOk(){
-        $data = array('foo' => 'bar');
-        Slim::init(array(
-            'templates_dir' => dirname(__FILE__) . '/templates'
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
         ));
-        Slim::render('test.php', $data, 404);
-        $this->assertEquals(Slim::response()->status(), 404);
-        $this->assertEquals(Slim::response()->status(), 404);
+        $s = new Slim();
+        $s->get('/bar/', function () { echo "xyz"; });
+        $s->call();
+        $this->assertEquals(301, $s->response()->status());
+    }
+
+    /**
+     * Test 405 Method Not Allowed
+     */
+    public function testMethodNotAllowed() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'POST',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () { echo "xyz"; });
+        $s->call();
+        $this->assertEquals(405, $s->response()->status());
+    }
+
+    /**
+     * Test if route does NOT expect trailing slash and URL has one
+     */
+    public function testRouteWithoutSlashAndUrlWithOne() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar/', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () { echo "xyz"; });
+        $s->call();
+        $this->assertEquals(404, $s->response()->status());
+    }
+
+    /**
+     * Test if route contains URL encoded characters
+     */
+    public function testRouteWithUrlEncodedCharacters() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar/jo%20hn/smi%20th', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/bar/:one/:two', function ($one, $two) { echo $one . $two; });
+        $s->call();
+        $this->assertEquals('jo hnsmi th', $s->response()->body());
     }
 
     /************************************************
-     * SLIM HTTP CACHING
+     * VIEW
      ************************************************/
 
     /**
-     * Test Slim HTTP caching if ETag match
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets an ETag
-     * for a route. The HTTP `If-None-Match` header is set and matches
-     * the ETag identifier value.
-     *
-     * Post-conditions:
-     * The Slim application will return a 304 Not Modified response
-     * because the ETag value matches `If-None-Match` request header.
+     * Test set view with string class name
      */
-    public function testSlimEtagMatches(){
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::etag('abc123');
-        });
-        Slim::run();
-        $this->assertEquals(304, Slim::response()->status());
+    public function testSetSlimViewFromString() {
+        $s = new Slim();
+        $this->assertInstanceOf('Slim_View', $s->view());
+        $s->view('CustomView');
+        $this->assertInstanceOf('CustomView', $s->view());
     }
 
     /**
-     * Test Slim HTTP caching if ETag does not match
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets an ETag for the requested
-     * resource route. The HTTP `If-None-Match` header is set and does not match
-     * the ETag identifier value.
-     *
-     * Post-conditions:
-     * The Slim application returns a 200 OK response because the
-     * ETag does not match `If-None-Match` request header
+     * Test set view with object instance
      */
-    public function testSlimEtagDoesNotMatch(){
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::etag('xyz789');
-        });
-        Slim::run();
-        $this->assertEquals(200, Slim::response()->status());
+    public function testSetSlimViewFromInstance() {
+        $s = new Slim();
+        $this->assertInstanceOf('Slim_View', $s->view());
+        $s->view(new CustomView());
+        $this->assertInstanceOf('CustomView', $s->view());
     }
 
     /**
-     * Test Slim::etag only accepts 'strong' or 'weak' types
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets an ETag
-     * with an invalid type argument.
-     *
-     * Post-conditions:
-     * An InvalidArgumentException is thrown
+     * Test view data is transferred to newer view
      */
-    public function testSlimETagThrowsExceptionForInvalidType(){
-        $this->setExpectedException('InvalidArgumentException');
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::etag('123','foo');
-        });
-        Slim::run();
-    }
-
-    /**
-     * Test Slim HTTP caching with Last Modified match
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets the
-     * `Last-Modified` response header for a route. The
-     * HTTP `If-Modified-Since` header is set and matches the
-     * `Last-Modified` date in the HTTP request.
-     *
-     * Post-conditions:
-     * The Slim application will return an HTTP 304 Not Modified response
-     * because the Last Modified date matches `If-Modified-Since` header.
-     */
-    public function testSlimLastModifiedDateMatches(){
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::lastModified(1286139652);
-        });
-        Slim::run();
-        $this->assertEquals(304, Slim::response()->status());
-    }
-
-    /**
-     * Test Slim HTTP caching if Last Modified does not match
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets the `Last-Modified` response
-     * header for the requested resource route. The HTTP `If-Modified-Since` header is
-     * set and does not match the `Last-Modified` date.
-     *
-     * Post-conditions:
-     * The Slim application will return an HTTP 200 OK response because
-     * the Last Modified date does not match the `If-Modified-Since`
-     * request header.
-     */
-    public function testSlimLastModifiedDateDoesNotMatch(){
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::lastModified(1286139250);
-        });
-        Slim::run();
-        $this->assertEquals(200, Slim::response()->status());
-    }
-
-    /**
-     * Test Slim Last Modified only accepts integer values
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application that sets the Last Modified
-     * date for a route to a non-integer value.
-     *
-     * Post-conditions:
-     * An InvalidArgumentException is thrown
-     */
-    public function testSlimLastModifiedOnlyAcceptsIntegers(){
-        $this->setExpectedException('InvalidArgumentException');
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::lastModified('Test');
-        });
-        Slim::run();
+    public function testViewDataTransfer() {
+        $data = array('foo' => 'bar');
+        $s = new Slim();
+        $s->view()->setData($data);
+        $s->view('CustomView');
+        $this->assertSame($data, $s->view()->getData());
     }
 
     /************************************************
-     * SLIM COOKIES
+     * RENDERING
      ************************************************/
 
     /**
-     * Test Slim gets cookie
-     *
-     * Pre-conditions:
-     * Cookie `foo` available in HTTP request;
-     * Slim app initialized;
-     * Case A: Cookie `foo` exists;
-     * Case B: Cookie `bad` does not exist;
-     *
-     * Post-conditions:
-     * Case A: Cookie `foo` value is "bar";
-     * Case B: Cooke `bad` value is NULL;
+     * Test render with template and data
      */
-    public function testSlimGetsCookie() {
-        Slim::init();
-        //Case A
-        $this->assertEquals(Slim::getCookie('foo'), 'bar');
-        //Case B
-        $this->assertNull(Slim::getCookie('doesNotExist'));
+    public function testRenderTemplateWithData() {
+        $s = new Slim(array('templates.path' => dirname(__FILE__) . '/templates'));
+        $s->get('/bar', function () use ($s) {
+            $s->render('test.php', array('foo' => 'bar'));
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(200, $status);
+        $this->assertEquals('test output bar', $body);
     }
 
     /**
-     * Test Slim sets cookie with default time
-     *
-     * Pre-conditions:
-     * Slim app initialized;
-     * Case A: Cookie time not set;
-     * Case B: Cookie time set as seconds from now (integer);
-     * Case C: Cookie time set as string;
-     * Case D: Cookie time is set to 0;
-     *
-     * Post-conditions:
-     * Cookie available in response;
-     * Case A: Cookie time set using default value;
-     * Case C: Cookie time set using `strtotime()`;
-     * Case D: Cookie time is 0;
+     * Test render with template and data and status
      */
-    public function testSlimSetsCookie() {
-        Slim::init();
-        $cj = Slim::response()->getCookieJar();
-        //Case A
-        $timeA = time();
-        Slim::setCookie('myCookie1', 'myValue1');
-        $cookieA = $cj->getResponseCookie('myCookie1');
-        $this->assertEquals('myCookie1', $cookieA->getName());
-        $this->assertEquals('myValue1', $cookieA->getValue());
-        $this->assertEquals($timeA + 1200, $cookieA->getExpires()); //default duration is 20 minutes
-        $this->assertEquals('/', $cookieA->getPath());
-        $this->assertEquals('', $cookieA->getDomain());
-        $this->assertFalse($cookieA->getSecure());
-        $this->assertFalse($cookieA->getHttpOnly());
-        //Case C
-        $timeC = time();
-        Slim::setCookie('myCookie3', 'myValue3', '1 hour');
-        $cookieC = $cj->getResponseCookie('myCookie3');
-        $this->assertEquals($timeC + 3600, $cookieC->getExpires());
-        //Case D
-        $timeD = time();
-        Slim::setCookie('myCookie4', 'myValue4', 0);
-        $cookieD = $cj->getResponseCookie('myCookie4');
-        $this->assertEquals(0, $cookieD->getExpires());
-    }
-
-    /**
-     * Test Slim sets encrypted cookie
-     *
-     * Pre-conditions:
-     * Slim app initialized;
-     * Case A: Cookie time not set;
-     * Case B: Cookie time set as seconds from now (integer);
-     * Case C: Cookie time set as string;
-     * Case D: Cookie time is set to 0;
-     *
-     * Post-conditions:
-     * Cookie available in response;
-     * Case A: Cookie time set using default value;
-     * Case C: Cookie time set using `strtotime()`;
-     * Case D: Cookie time is 0;
-     */
-    public function testSlimSetsEncryptedCookie() {
-        Slim::init();
-        $cj = Slim::response()->getCookieJar();
-        //Case A
-        $timeA = time();
-        Slim::setEncryptedCookie('myCookie1', 'myValue1');
-        $cookieA = $cj->getResponseCookie('myCookie1');
-        $this->assertEquals('myCookie1', $cookieA->getName());
-        $this->assertEquals($timeA + 1200, $cookieA->getExpires()); //default duration is 20 minutes
-        $this->assertEquals('/', $cookieA->getPath());
-        $this->assertEquals('', $cookieA->getDomain());
-        $this->assertFalse($cookieA->getSecure());
-        $this->assertFalse($cookieA->getHttpOnly());
-        //Case C
-        $timeC = time();
-        Slim::setEncryptedCookie('myCookie3', 'myValue3', '1 hour');
-        $cookieC = $cj->getResponseCookie('myCookie3');
-        $this->assertEquals($timeC + 3600, $cookieC->getExpires());
-        //Case D
-        $timeD = time();
-        Slim::setEncryptedCookie('myCookie4', 'myValue4', 0);
-        $cookieD = $cj->getResponseCookie('myCookie4');
-        $this->assertEquals(0, $cookieD->getExpires());
-    }
-
-    /**
-     * Test Slim deletes cookies
-     *
-     * Pre-conditions:
-     * Case A: Classic cookie
-     * Case B: Encrypted cookie
-     *
-     * Post-conditions:
-     * Response Cookies replaced with empty, auto-expiring Cookies
-     */
-    public function testSlimDeletesCookies() {
-        Slim::init();
-        $cj = Slim::response()->getCookieJar();
-        //Case A
-        Slim::setCookie('foo1', 'bar1');
-        $this->assertEquals('bar1', $cj->getResponseCookie('foo1')->getValue());
-        $this->assertTrue($cj->getResponseCookie('foo1')->getExpires() > time());
-        Slim::deleteCookie('foo1');
-        $this->assertEquals('', Slim::getCookie('foo1'));
-        $this->assertTrue($cj->getResponseCookie('foo1')->getExpires() < time());
-        //Case B
-        Slim::setEncryptedCookie('foo2', 'bar2');
-        $this->assertTrue(strlen($cj->getResponseCookie('foo2')->getValue()) > 0);
-        $this->assertTrue($cj->getResponseCookie('foo2')->getExpires() > time());
-        Slim::deleteCookie('foo2');
-        $this->assertEquals('', $cj->getResponseCookie('foo2')->getValue());
-        $this->assertTrue($cj->getResponseCookie('foo2')->getExpires() < time());
+    public function testRenderTemplateWithDataAndStatus() {
+        $s = new Slim(array('templates.path' => dirname(__FILE__) . '/templates'));
+        $s->get('/bar', function () use ($s) {
+            $s->render('test.php', array('foo' => 'bar'), 500);
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(500, $status);
+        $this->assertEquals('test output bar', $body);
     }
 
     /************************************************
-     * SLIM HELPERS
+     * LOG
      ************************************************/
 
     /**
-     * Test Slim Stop
+     * Test get log
      *
-     * Pre-conditions:
-     * You have initialized a Slim application and stop
-     * the application inside of a route callback.
-     *
-     * Post-conditions:
-     * A SlimStopException is thrown;
-     * The response is unaffected by code after Slim::stop is called
+     * This asserts that a Slim app has a default Log
+     * upon instantiation. The Log itself is tested
+     * separately in another file.
      */
-    public function testSlimStop() {
-        Slim::init();
-        Slim::get('/', function () {
-            try {
-                echo "foo";
-                Slim::stop();
-                echo "bar";
-            } catch ( Slim_Exception_Stop $e ) {}
+    public function testGetLog() {
+        $s = new Slim();
+        $this->assertInstanceOf('Slim_Log', $s->getLog());
+    }
+
+    /************************************************
+     * HTTP CACHING
+     ************************************************/
+
+    /**
+     * Test Last-Modified match
+     */
+    public function testLastModifiedMatch() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'GET',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'IF_MODIFIED_SINCE' => 'Sun, 03 Oct 2010 17:00:52 -0400',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->lastModified(1286139652);
         });
-        Slim::run();
-        $this->assertEquals(Slim::response()->body(), 'foo');
+        $s->call();
+        $this->assertEquals(304, $s->response()->status());
     }
 
     /**
-     * Test Slim::halt inside route callback
-     *
-     * Pre-conditions:
-     * Slim::halt is invoked inside a route callback
-     *
-     * Post-conditions:
-     * The new response should be set correctly, and preivous
-     * and subsequent invocations from within the route
-     * callback are ignored.
+     * Test Last-Modified match
      */
-    public function testSlimHaltInsideCallback() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::get('/', function () {
-            echo "foo";
-            Slim::halt(404, 'Halt not found');
-            echo "bar";
+    public function testLastModifiedDoesNotMatch() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'IF_MODIFIED_SINCE' => 'Sun, 03 Oct 2010 17:00:52 -0400',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->lastModified(1286139250);
         });
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 404);
-        $this->assertEquals(Slim::response()->body(), 'Halt not found');
+        $s->call();
+        $this->assertEquals(200, $s->response()->status());
     }
 
-    /**
-     * Test Slim::halt outside route callback
-     *
-     * Pre-conditions:
-     * Slim::halt is invoked outside of a route callback
-     *
-     * Post-conditions:
-     * The new response should be returned with the expected
-     * status code and body, regardless of the current route
-     * callback's expected output.
-     */
-    public function testSlimHaltOutsideCallback() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::halt(500, 'External error');
-        Slim::get('/', function () {
-            echo "foo";
-        });
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 500);
-        $this->assertEquals(Slim::response()->body(), 'External error');
-    }
-
-    /**
-     * Test Slim::pass continues to next matching route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application with two accesible routes.
-     * The first matching route should be the most specific and should
-     * invoke Slim::pass(). The second accessible route should be
-     * the next matching route.
-     *
-     * Post-conditions:
-     * The response body should be set by the second matching route.
-     */
-    public function testSlimPassWithFallbackRoute() {
-        $_SERVER['REQUEST_URI'] = "/name/Frank";
-        Slim::init();
-        Slim::get('/name/Frank', function (){
-            echo "Your name is Frank";
-            Slim::pass();
-        });
-        Slim::get('/name/:name', function ($name) {
-            echo "I think your name is $name";
-        });
-        Slim::run();
-        $this->assertEquals(Slim::response()->body(), "I think your name is Frank");
-    }
-
-    /**
-     * Test Slim::pass continues, but next matching route not found
-     *
-     * Pre-conditions:
-     * You have initialized a Slim application with one accesible route.
-     * The first matching route should be the most specific and should
-     * invoke Slim::pass().
-     *
-     * Post-conditions:
-     * No second matching route is found, and a HTTP 404 response is
-     * sent to the client.
-     */
-    public function testSlimPassWithoutFallbackRoute() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        $_SERVER['REQUEST_URI'] = "/name/Frank";
-        Slim::init();
-        Slim::get('name/Frank', function (){
-            echo "Your name is Frank";
-            Slim::pass();
-        });
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 404);
-    }
-
-    /**
-     * Test Slim::contentType
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app and set the Content-Type
-     * HTTP response header.
-     *
-     * Post-conditions:
-     * The Response content type header is set correctly.
-     */
-    public function testSlimContentType(){
-        Slim::init();
-        Slim::contentType('image/jpeg');
-        $this->assertEquals(Slim::response()->header('Content-Type'), 'image/jpeg');
-    }
-
-    /**
-     * Test Slim::status
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app and set the status code.
-     *
-     * Post-conditions:
-     * The Response status code is set correctly.
-     */
-    public function testSlimStatus(){
-        Slim::init();
-        Slim::status(302);
-        $this->assertSame(Slim::response()->status(), 302);
-
+    public function testLastModifiedOnlyAcceptsIntegers(){
         $this->setExpectedException('InvalidArgumentException');
-        Slim::init();
-        Slim::status(900);
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->lastModified('Test');
+        });
+        $s->call();
     }
 
     /**
-     * Test Slim URL For
+     * Test ETag matches
+     */
+    public function testEtagMatches() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'IF_NONE_MATCH' => '"abc123"',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->etag('abc123');
+        });
+        $s->call();
+        $this->assertEquals(304, $s->response()->status());
+    }
+
+    /**
+     * Test ETag does not match
+     */
+    public function testEtagDoesNotMatch() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'IF_NONE_MATCH' => '"abc1234"',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->etag('abc123');
+        });
+        $s->call();
+        $this->assertEquals(200, $s->response()->status());
+    }
+
+    /**
+     * Test ETag with invalid type
+     */
+    public function testETagWithInvalidType(){
+        $this->setExpectedException('InvalidArgumentException');
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'IF_NONE_MATCH' => '"abc1234"',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->etag('123','foo');
+        });
+        $s->call();
+    }
+
+    /**
+     * Test Expires
+     */
+    public function testExpiresAsString() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $expectedDate = gmdate('D, d M Y', strtotime('5 days')); //Just the day, month, and year
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->expires('5 days');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertTrue(isset($header['Expires']));
+        $this->assertEquals(0, strpos($header['Expires'], $expectedDate));
+    }
+
+    /**
+     * Test Expires
+     */
+    public function testExpiresAsInteger() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $fiveDaysFromNow = time() + (60 * 60 * 24 * 5);
+        $expectedDate = gmdate('D, d M Y', $fiveDaysFromNow); //Just the day, month, and year
+        $s = new Slim();
+        $s->get('/bar', function () use ($s, $fiveDaysFromNow) {
+            $s->expires($fiveDaysFromNow);
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertTrue(isset($header['Expires']));
+        $this->assertEquals(0, strpos($header['Expires'], $expectedDate));
+    }
+
+    /************************************************
+     * COOKIES
+     ************************************************/
+
+    /**
+     * Set cookie
      *
-     * Pre-conditions:
-     * You have initialized a Slim app with a named route.
+     * This tests that the Slim application instance sets
+     * a cookie in the HTTP response header. This does NOT
+     * test the implementation of setting the cookie; that is
+     * tested in a separate file.
+     */
+    public function testSetCookie() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->setCookie('foo', 'bar', '2 days');
+            $s->setCookie('foo1', 'bar1', '2 days');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $cookies = explode("\n", $header['Set-Cookie']);
+        $this->assertEquals(2, count($cookies));
+        $this->assertEquals(1, preg_match('@foo=bar@', $cookies[0]));
+        $this->assertEquals(1, preg_match('@foo1=bar1@', $cookies[1]));
+    }
+
+    /**
+     * Test get cookie
      *
-     * Post-conditions:
-     * Slim returns an accurate URL for the named route.
+     * This method ensures that the `Cookie:` HTTP request
+     * header is parsed if present, and made accessible via the
+     * Request object.
+     */
+    public function testGetCookie() {
+        Slim_Environment::mock(array(
+            'REQUEST_METHOD' => 'GET',
+            'REMOTE_ADDR' => '127.0.0.1',
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'QUERY_STRING' => 'one=foo&two=bar',
+            'SERVER_NAME' => 'slimframework.com',
+            'SERVER_PORT' => 80,
+            'COOKIE' => 'foo=bar; foo2=bar2',
+            'slim.url_scheme' => 'http',
+            'slim.input' => '',
+            'slim.errors' => @fopen('php://stderr', 'w')
+        ));
+        $s = new Slim();
+        $this->assertEquals('bar', $s->getCookie('foo'));
+        $this->assertEquals('bar2', $s->getCookie('foo2'));
+    }
+
+    /**
+     * Test get cookie when cookie does not exist
+     */
+    public function testGetCookieThatDoesNotExist() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $this->assertNull($s->getCookie('foo'));
+    }
+
+    /**
+     * Test delete cookie
+     *
+     * This method ensures that the `Set-Cookie:` HTTP response
+     * header is set. The implementation of setting the response
+     * cookie is tested separately in another file.
+     */
+    public function testDeleteCookie() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+            'COOKIE' => 'foo=bar; foo2=bar2',
+        ));
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->setCookie('foo', 'bar');
+            $s->deleteCookie('foo');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $cookies = explode("\n", $header['Set-Cookie']);
+        $this->assertEquals(1, count($cookies));
+        $this->assertEquals(1, preg_match('@^foo=;@', $cookies[0]));
+    }
+
+    /**
+     * Test set encrypted cookie
+     *
+     * This method ensures that the `Set-Cookie:` HTTP request
+     * header is set. The implementation is tested in a separate file.
+     */
+    public function testSetEncryptedCookie() {
+        $s = new Slim();
+        $s->setEncryptedCookie('foo', 'bar');
+        $r = $s->response();
+        $this->assertEquals(1, preg_match("@^foo=.+%7C.+%7C.+@", $r['Set-Cookie'])); //<-- %7C is a url-encoded pipe
+    }
+
+    /**
+     * Test get encrypted cookie
+     *
+     * This only tests that this method runs without error. The implementation of
+     * fetching the encrypted cookie is tested separately.
+     */
+    public function testGetEncryptedCookieAndDeletingIt() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $r = $s->response();
+        $this->assertFalse($s->getEncryptedCookie('foo'));
+        $this->assertEquals(1, preg_match("@foo=;.*@", $r['Set-Cookie']));
+    }
+
+    /**
+     * Test get encrypted cookie WITHOUT deleting it
+     *
+     * This only tests that this method runs without error. The implementation of
+     * fetching the encrypted cookie is tested separately.
+     */
+    public function testGetEncryptedCookieWithoutDeletingIt() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/bar', //<-- Virtual
+        ));
+        $s = new Slim();
+        $r = $s->response();
+        $this->assertFalse($s->getEncryptedCookie('foo', false));
+        $this->assertEquals(0, preg_match("@foo=;.*@", $r['Set-Cookie']));
+    }
+
+    /************************************************
+     * HELPERS
+     ************************************************/
+
+    /**
+     * Test get filesystem path to Slim app root directory
+     */
+    public function testGetRoot() {
+        $_SERVER['DOCUMENT_ROOT'] = dirname(__FILE__); //<-- No trailing slash
+        $s = new Slim();
+        $this->assertEquals($_SERVER['DOCUMENT_ROOT'] . '/foo/', $s->root()); //<-- Appends physical app path with trailing slash
+    }
+
+    /**
+     * Test stop
+     */
+    public function testStop() {
+        $this->setExpectedException('Slim_Exception_Stop');
+        $s = new Slim();
+        $s->stop();
+    }
+
+    /**
+     * Test stop with subsequent output
+     */
+    public function testStopWithSubsequentOutput() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo"; //<-- Should be in response body!
+            $s->stop();
+            echo "Bar"; //<-- Should not be in response body!
+        });
+        $s->call();
+        $this->assertEquals('Foo', $s->response()->body());
+    }
+
+    /**
+     * Test stop with output buffer on and pre content
+     */
+    public function testStopOutputWithOutputBufferingOnAndPreContent() {
+        $this->expectOutputString('1.2.Foo.3'); //<-- PHP unit uses OB here
+        echo "1.";
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo";
+            $s->stop();
+        });
+        echo "2.";
+        $s->run();      //<-- Needs to be run to actually echo body
+        echo ".3";
+    }
+
+    /**
+     * Test stop does not leave output buffers open
+     */
+    public function testStopDoesNotLeaveOutputBuffersOpen() {
+        $level_start = ob_get_level();
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->stop();
+        });
+        $s->run();
+        $this->assertEquals($level_start, ob_get_level());
+    }
+
+    /**
+     * Test halt
+     */
+    public function testHalt() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo!"; //<-- Should not be in response body!
+            $s->halt(500, 'Something broke');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(500, $status);
+        $this->assertEquals('Something broke', $body);
+    }
+
+    /**
+     * Test halt with output buffering and pre content
+     */
+    public function testHaltOutputWithOutputBufferingOnAndPreContent() {
+        $this->expectOutputString('1.2.Something broke.3'); //<-- PHP unit uses OB here
+        echo "1.";
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo!"; //<-- Should not be in response body!
+            $s->halt(500, 'Something broke');
+        });
+        echo "2.";
+        $s->run();
+        echo ".3";
+    }
+
+    /**
+     * Test halt does not leave output buffers open
+     */
+    public function testHaltDoesNotLeaveOutputBuffersOpen() {
+        $level_start = ob_get_level();
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->halt(500, '');
+        });
+        $s->run();
+        $this->assertEquals($level_start, ob_get_level());
+    }
+
+    /**
+     * Test pass cleans buffer and throws exception
+     */
+    public function testPass() {
+        ob_start();
+        $s = new Slim();
+        echo "Foo";
+        try {
+            $s->pass();
+            $this->fail('Did not catch Slim_Exception_Pass');
+        } catch ( Slim_Exception_Pass $e ) {}
+        $output = ob_get_clean();
+        $this->assertEquals('', $output);
+    }
+
+    /**
+     * Test pass when there is a subsequent fallback route
+     */
+    public function testPassWithSubsequentRoute() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/name/Frank', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/name/Frank', function () use ($s) {
+            echo "Fail"; //<-- Should not be in response body!
+            $s->pass();
+        });
+        $s->get('/name/:name', function ($name) {
+            echo $name; //<-- Should be in response body!
+        });
+        $s->call();
+        $this->assertEquals('Frank', $s->response()->body());
+    }
+
+    /**
+     * Test pass when there is not a subsequent fallback route
+     */
+    public function testPassWithoutSubsequentRoute() {
+        Slim_Environment::mock(array(
+            'SCRIPT_NAME' => '/foo', //<-- Physical
+            'PATH_INFO' => '/name/Frank', //<-- Virtual
+        ));
+        $s = new Slim();
+        $s->get('/name/Frank', function () use ($s) {
+            echo "Fail"; //<-- Should not be in response body!
+            $s->pass();
+        });
+        $s->call();
+        $this->assertEquals(404, $s->response()->status());
+    }
+
+    /**
+     * Test content type
+     */
+    public function testContentType() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->contentType('application/json');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals('application/json', $header['Content-Type']);
+    }
+
+    /**
+     * Test status
+     */
+    public function testStatus() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->status(403);
+        });
+        $s->call();
+        $this->assertEquals(403, $s->response()->status());
+    }
+
+    /**
+     * Test URL for
      */
     public function testSlimUrlFor(){
-        Slim::init();
-        Slim::get('/hello/:name', function () {})->name('hello');
-        $this->assertEquals('/hello/Josh', Slim::urlFor('hello', array('name' => 'Josh')));
+        $s = new Slim();
+        $s->get('/hello/:name', function () {})->name('hello');
+        $this->assertEquals('/foo/hello/Josh', $s->urlFor('hello', array('name' => 'Josh'))); //<-- Prepends physical path!
     }
 
     /**
-     * Test Slim::redirect
-     *
-     * Pre-conditions:
-     * Case A: Status code is less than 300
-     * Case B: Status code is greater than 307
-     * Case C: Status code is 300
-     * Case D: Status code is 302 (between 300 and 307)
-     * Case E: Status code is 307
-     *
-     * Post-conditions:
-     * Case A: An InvalidArgumentException is thrown
-     * Case B: An InvalidArgumentException is thrown
-     * Case C: Response code is 300
-     * Case D: Response code is 302
-     * Case E: Response code is 307
+     * Test redirect sets status and header
      */
-    public function testSlimRedirect() {
-        //Case A
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::redirect('/foo', 200);
+    public function testRedirect() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo"; //<-- Should not be in response body!
+            $s->redirect('/somewhere/else', 303);
         });
-        try {
-            Slim::run();
-            $this->fail('InvalidArgumentException not caught');
-        } catch( InvalidArgumentException $e ) {}
-
-        //Case B
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::redirect('/foo', 308);
-        });
-        try {
-            Slim::run();
-            $this->fail('InvalidArgumentException not caught');
-        } catch( InvalidArgumentException $e ) {}
-
-        //Case C
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::redirect('/foo', 300);
-        });
-        try {
-            Slim::run();
-            $this->fail("SlimStopException not caught");
-        } catch ( Slim_Exception_Stop $e ) {}
-        $this->assertEquals(Slim::response()->status(), 300);
-
-        //Case D
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::redirect('/foo', 302);
-        });
-        try {
-            Slim::run();
-            $this->fail("SlimStopException not caught");
-        } catch ( Slim_Exception_Stop $e ) {}
-        $this->assertEquals(Slim::response()->status(), 302);
-
-        //Case E
-        Slim::init();
-        Slim::get('/', function () {
-            Slim::redirect('/foo', 307);
-        });
-        try {
-            Slim::run();
-            $this->fail("SlimStopException not caught");
-        } catch ( Slim_Exception_Stop $e ) {}
-        $this->assertEquals(Slim::response()->status(), 307);
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(303, $status);
+        $this->assertEquals('/somewhere/else', $header['Location']);
+        $this->assertEquals('/somewhere/else', $body);
     }
 
     /************************************************
-     * SLIM ERROR AND EXCEPTION HANDLING
+     * RUNNER
      ************************************************/
 
     /**
-     * Test Slim Not Found handler
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a NotFound handler and
-     * a route that does not match the mock HTTP request.
-     *
-     * Post-conditions:
-     * The response status will be 404
+     * Test that runner sends headers and body
      */
-    public function testSlimRouteNotFound() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::get('/foo', function () {});
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 404);
+    public function testRun() {
+        $this->expectOutputString('Foo');
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            echo "Foo";
+        });
+        $s->run();
     }
 
     /**
-     * Test Slim returns 500 response if error thrown within Slim app
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with a custom Error handler with
-     * an accessible route that calls Slim::error().
-     *
-     * Post-conditions:
-     * The response status will be 500
+     * Test runner output with output buffering on and pre content
      */
-    public function testSlimError() {
-        $this->setExpectedException('Slim_Exception_Stop');
-        Slim::init();
-        Slim::get('/', function () { Slim::error(); });
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 500);
+    public function testRunOutputWithOutputBufferingOnAndPreContent() {
+      $this->expectOutputString('1.2.Foo.3');  //<-- PHP unit uses OB here
+      $s = new Slim();
+      echo "1.";
+      $s->get('/bar', function () use ($s) {
+          echo "Foo";
+      });
+      echo "2.";
+      $s->run();
+      echo ".3";
     }
 
     /**
-     * Test Slim returns 200 OK for successful route
-     *
-     * Pre-conditions:
-     * You have initialized a Slim app with an accessible route that
-     * does not throw any Exceptions and does not set a custom status.
-     *
-     * Post-conditions:
-     * The response status is 200 and response body is as expected.
+     * Test that runner does not leave output buffers open
      */
-    public function testSlimOkResponse() {
-        Slim::init();
-        Slim::get('/', function () { echo "Ok"; });
-        Slim::run();
-        $this->assertEquals(Slim::response()->status(), 200);
-        $this->assertEquals(Slim::response()->body(), 'Ok');
+    public function testRunDoesNotLeaveAnyOutputBuffersOpen() {
+      $level_start = ob_get_level();
+      $s = new Slim();
+      $s->get('/bar', function () use ($s) {});
+      $s->run();
+      $this->assertEquals($level_start, ob_get_level());
     }
 
     /************************************************
-     * SLIM HOOKS
+     * MIDDLEWARE
+     ************************************************/
+
+    /**
+     * Test add middleware
+     *
+     * This asserts that middleware are queued and called
+     * in sequence. This also asserts that the environment
+     * variables are passed by reference.
+     */
+    public function testAddMiddleware() {
+        $this->expectOutputString('FooHello');
+        $s = new Slim();
+        $s->add(new CustomMiddleware()); //<-- See top of this file for class definition
+        $s->get('/bar', function () {
+            echo 'Foo';
+        });
+        $s->run();
+        $this->assertEquals('Hello', $s->response()->header('X-Slim-Test'));
+    }
+
+    /************************************************
+     * FLASH MESSAGING
+     ************************************************/
+
+    public function testSetFlashForNextRequest() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->flash('info', 'bar');
+        });
+        $this->assertFalse(isset($_SESSION['slim.flash']));
+        $s->run();
+        $this->assertEquals('bar', $_SESSION['slim.flash']['info']);
+    }
+
+    public function testSetFlashForCurrentRequest() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->flashNow('info', 'bar');
+        });
+        $s->run();
+        $env = $s->environment();
+        $this->assertEquals('bar', $env['slim.flash']['info']);
+    }
+
+    public function testKeepFlashForNextRequest() {
+        $_SESSION['slim.flash'] = array('info' => 'Foo');
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->flashKeep();
+        });
+        $s->run();
+        $this->assertEquals('Foo', $_SESSION['slim.flash']['info']);
+    }
+
+    /************************************************
+     * NOT FOUND HANDLING
+     ************************************************/
+
+    /**
+     * Test custom Not Found handler
+     */
+    public function testNotFound() {
+        $s = new Slim();
+        $s->notFound(function () {
+            echo "Not Found";
+        });
+        $s->get('/foo', function () {});
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(404, $status);
+        $this->assertEquals('Not Found', $body);
+    }
+
+    /************************************************
+     * ERROR HANDLING
+     ************************************************/
+
+    /**
+     * Test default and custom error handlers
+     *
+     * Pre-conditions:
+     * Invoked app route calls default error handler;
+     *
+     * Post-conditions:
+     * Response status code is 500;
+     */
+    public function testSlimError() {
+        $s = new Slim();
+        $s->get('/bar', function () use ($s) {
+            $s->error();
+        });
+        $s->call();
+        $this->assertEquals(500, $s->response()->status());
+    }
+
+    /**
+     * Test triggered errors are converted to ErrorExceptions
+     *
+     * Pre-conditions:
+     * Custom error handler defined;
+     * Invoked app route triggers error;
+     *
+     * Post-conditions:
+     * Response status is 500;
+     * Response body is equal to triggered error message;
+     * Error handler's argument is ErrorException instance;
+     */
+    public function testTriggeredErrorsAreConvertedToErrorExceptions() {
+        $s = new Slim(array(
+            'debug' => false
+        ));
+        $s->error(function ( $e ) {
+            if ( $e instanceof ErrorException ) {
+                echo $e->getMessage();
+            }
+        });
+        $s->get('/bar', function () {
+            trigger_error('Foo I say!');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(500, $status);
+        $this->assertEquals('Foo I say!', $body);
+    }
+
+    /**
+     * Test error triggered with multiple applications
+     *
+     * Pre-conditions:
+     * Multiple Slim apps are instantiated;
+     * Both apps are run;
+     * One app returns 200 OK;
+     * One app triggers an error;
+     *
+     * Post-conditions:
+     * One app returns 200 OK with no Exceptions;
+     * One app returns 500 Error;
+     * Error triggered does not affect other app;
+     */
+    public function testErrorWithMultipleApps() {
+        $s1 = new Slim(array(
+            'debug' => false
+        ));
+        $s2 = new Slim();
+        $s1->get('/bar', function () {
+            trigger_error('error');
+        });
+        $s2->get('/bar', function () {
+            echo 'success';
+        });
+        $s1->call();
+        $s2->call();
+        $this->assertEquals(500, $s1->response()->status());
+        $this->assertEquals(200, $s2->response()->status());
+    }
+
+    /**
+     * Test custom error handler uses existing Response object
+     */
+    public function testErrorHandlerUsesCurrentResponseObject() {
+        $s = new Slim(array(
+            'debug' => false
+        ));
+        $s->error(function ( Exception $e ) use ($s) {
+            $r = $s->response();
+            $r->status(503);
+            $r->write('Foo');
+            $r['X-Powered-By'] = 'Slim';
+            echo 'Bar';
+        });
+        $s->get('/bar', function () {
+            throw new Exception('Foo');
+        });
+        $s->call();
+        list($status, $header, $body) = $s->response()->finalize();
+        $this->assertEquals(503, $status);
+        $this->assertEquals('FooBar', $body);
+        $this->assertEquals('Slim', $header['X-Powered-By']);
+    }
+
+    /**
+     * Test custom global error handler
+     */
+    public function testHandleErrors() {
+        $defaultErrorReporting = error_reporting();
+
+        // Assert Slim ignores E_NOTICE errors
+        error_reporting(E_ALL ^ E_NOTICE); // <-- Report all errors EXCEPT notices
+        try {
+            $this->assertTrue(Slim::handleErrors(E_NOTICE, 'test error', 'Slim.php', 119));
+        } catch (ErrorException $e) {
+            $this->fail('Slim::handleErrors reported a disabled error level.');
+        }
+
+        // Assert Slim reports E_STRICT errors
+        error_reporting(E_ALL | E_STRICT); // <-- Report all errors, including E_STRICT
+        try {
+            Slim::handleErrors(E_STRICT, 'test error', 'Slim.php', 119);
+            $this->fail('Slim::handleErrors didn\'t report a enabled error level');
+        } catch(ErrorException $e) {
+            $this->assertEquals('test error', $e->getMessage());
+        }
+
+        error_reporting($defaultErrorReporting);
+    }
+
+    /************************************************
+     * HOOKS
      ************************************************/
 
     /**
      * Test hook listener
      *
      * Pre-conditions:
-     * Slim app initialized;
+     * Slim app instantiated;
      * Hook name does not exist;
      * Listeners are callable objects;
      *
      * Post-conditions:
-     * Callables are invoked in expected order
+     * Callables are invoked in expected order;
      */
     public function testRegistersAndCallsHooksByPriority() {
         $this->expectOutputString('barfoo');
-        Slim::init();
+        $app = new Slim();
         $callable1 = function () { echo "foo"; };
         $callable2 = function () { echo "bar"; };
-        Slim::hook('test.hook.one', $callable1); //default is 10
-        Slim::hook('test.hook.one', $callable2, 8);
-        Slim::applyHook('test.hook.one');
+        $app->hook('test.hook.one', $callable1); //default is 10
+        $app->hook('test.hook.one', $callable2, 8);
+        $hooks = $app->getHooks();
+        $this->assertEquals(7, count($hooks)); //6 default, 1 custom
+        $app->applyHook('test.hook.one');
     }
 
     /**
      * Test hook listener if listener is not callable
      *
      * Pre-conditions:
-     * Slim app initialized;
+     * Slim app instantiated;
      * Hook name does not exist;
-     * Listener is NOT a callable object
+     * Listener is NOT a callable object;
      *
      * Post-conditions:
      * Hook is created;
      * Callable is NOT assigned to hook;
      */
     public function testHookInvalidCallable() {
-        Slim::init();
+        $app = new Slim();
         $callable = 'test'; //NOT callable
-        Slim::hook('test.hook.one', $callable);
-        $this->assertEquals(array(array()), Slim::getHooks('test.hook.one'));
+        $app->hook('test.hook.one', $callable);
+        $this->assertEquals(array(array()), $app->getHooks('test.hook.one'));
     }
 
     /**
      * Test hook invocation if hook does not exist
      *
      * Pre-conditions:
-     * Slim app intialized;
+     * Slim app instantiated;
      * Hook name does not exist;
      *
      * Post-conditions:
      * Hook is created;
-     * Hook initialized with empty array
+     * Hook initialized with empty array;
      */
     public function testHookInvocationIfNotExists() {
-        Slim::init();
-        Slim::applyHook('test.hook.one');
-        $this->assertEquals(array(array()), Slim::getHooks('test.hook.one'));
+        $app = new Slim();
+        $app->applyHook('test.hook.one');
+        $this->assertEquals(array(array()), $app->getHooks('test.hook.one'));
     }
 
     /**
      * Test clear hooks
      *
      * Pre-conditions:
-     * Slim app initialized
-     * Two hooks exist, each with one listener
+     * Slim app instantiated;
+     * Two hooks exist, each with one listener;
      *
      * Post-conditions:
-     * Case A: Listeners for 'test.hook.one' are cleared
-     * Case B: Listeners for all hooks are cleared
+     * Case A: Listeners for 'test.hook.one' are cleared;
+     * Case B: Listeners for all hooks are cleared;
      */
     public function testHookClear() {
-        Slim::init();
-        Slim::hook('test.hook.one', function () {});
-        Slim::hook('test.hook.two', function () {});
-        Slim::clearHooks('test.hook.two');
-        $this->assertEquals(array(array()), Slim::getHooks('test.hook.two'));
-        $hookOne = Slim::getHooks('test.hook.one');
+        $app = new Slim();
+        $app->hook('test.hook.one', function () {});
+        $app->hook('test.hook.two', function () {});
+        $app->clearHooks('test.hook.two');
+        $this->assertEquals(array(array()), $app->getHooks('test.hook.two'));
+        $hookOne = $app->getHooks('test.hook.one');
         $this->assertTrue(count($hookOne[10]) === 1);
-        Slim::clearHooks();
-        $this->assertEquals(array(array()), Slim::getHooks('test.hook.one'));
+        $app->clearHooks();
+        $this->assertEquals(array(array()), $app->getHooks('test.hook.one'));
     }
-
-    /**
-     * Test hook filter behavior
-     *
-     */
-    public function testHookFilterBehavior() {
-        Slim::init();
-        Slim::hook('test.hook', function ($arg) { return $arg . 'foo'; });
-        $this->assertEquals('barfoo', Slim::applyHook('test.hook', 'bar'));
-    }
-
 }
-
-?>
